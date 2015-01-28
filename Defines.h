@@ -22,7 +22,11 @@
 #endif
 
 #undef DEGRIDDING
+
+#if !defined USE_REAL_UVW
 #define USE_REAL_UVW
+#endif
+
 #define USE_SYMMETRY
 #undef MAP_OBJECTS
 #define ENABLE_PROFILING
@@ -32,24 +36,24 @@
 #endif
 
 #if !defined GRID_U
-#define GRID_U		2048
+#define GRID_U		(2*2048)
 #endif
 
 #if !defined GRID_V
-#define GRID_V		2048
+#define GRID_V		(2*2048)
 #endif
 
 #define POLARIZATIONS	4
 
 #if !defined SUPPORT_U
-#define SUPPORT_U	16
+#define SUPPORT_U	100
 #endif
 #if !defined X
 #define X SUPPORT_U
 #endif
 
 #if !defined SUPPORT_V
-#define SUPPORT_V	16
+#define SUPPORT_V	100
 #endif
 
 #if !defined W_PLANES
@@ -72,7 +76,7 @@
 #endif
 
 #if !defined TIMESTEPS
-#define TIMESTEPS	20
+#define TIMESTEPS	5
 #endif
 
 #if !defined BLOCKS

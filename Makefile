@@ -9,7 +9,7 @@ CXX=		g++
 #CXX=		icc
 #CXXFLAGS=	-O3 -fopenmp -g -msse4.1 -vec-report1
 #CXXFLAGS=	-O3 -fopenmp -g -march=core-avx-i -vec-report5
-CXXFLAGS=	-O3 -fopenmp -g -I.
+CXXFLAGS=	-O3 -fopenmp -I.
 
 ifneq		"$(shell fgrep avx /proc/cpuinfo)" ""
 CXXFLAGS:=	$(CXXFLAGS) -mavx
@@ -26,8 +26,15 @@ DEFINES=	$(if ${MODE}, -DMODE=${MODE})\
 		$(if ${W_PLANES}, -DW_PLANES=${W_PLANES})\
 		$(if ${X}, -DX=${X})\
 		$(if ${TIMESTEPS}, -DTIMESTEPS=${TIMESTEPS})\
+		$(if ${CHANNELS}, -DCHANNELS=${CHANNELS})\
 		$(if ${BLOCKS}, -DBLOCKS=${BLOCKS})\
-		$(if ${USE_TEXTURE}, -DUSE_TEXTURE)
+		$(if ${NGRID}, -DNGRID=${NGRID})\
+		$(if ${USE_TEXTURE}, -DUSE_TEXTURE)\
+		$(if ${HORZ_ONLY}, -DHORZ_ONLY)\
+		$(if ${VERT_ONLY}, -DVERT_ONLY)\
+		$(if ${USE_REAL_UVW}, -DUSE_REAL_UVW)\
+		$(if ${ATOMIC_TYPE}, -DATOMIC_TYPE)\
+		-DAccumType=$(PRECISION)2
 
 a.out-CPU:	Gridding-CPU.o UVW.o
 		$(CXX) $(DEFINES) $(CXXFLAGS) $^ -o $@
@@ -43,11 +50,11 @@ Gridding-CPU.o:	Gridding.cc Common.h Defines.h
 		$(CXX) -c $(DEFINES) $(CXXFLAGS) $< -o $@
 
 Gridding-Cuda.ptx:Gridding.cc Common.h Defines.h
-		nvcc $(PTXASFLAGS) -x cu --ptx -ccbin=${CXX} -g -D__CUDA__ $(DEFINES) -use_fast_math -arch=$(ARCH) -code=$(ARCH) -Xcompiler "$(CXXFLAGS)" $< -o $@
+		nvcc $(PTXASFLAGS) -x cu --ptx -ccbin=${CXX} -D__CUDA__ $(DEFINES) -use_fast_math -arch=$(ARCH) -code=$(ARCH) -Xcompiler "$(CXXFLAGS)" $< -o $@
 
 Gridding-Cuda.o:Gridding.cc Common.h Defines.h
 		#nvcc $(PTXASFLAGS) -x cu --compile -ccbin=${CXX} -g -D__CUDA__ $(DEFINES) -use_fast_math -arch=$(ARCH) -code=$(ARCH) -Xcompiler "$(CXXFLAGS)" $< -o $@
-		nvcc $(PTXASFLAGS) -x cu --compile -ccbin=${CXX} -g -D__CUDA__ $(DEFINES) -use_fast_math -arch=$(ARCH) -code=$(ARCH) -Xcompiler "-O3,-fopenmp" $< -o $@
+		nvcc $(PTXASFLAGS) -x cu --compile -ccbin=${CXX} -D__CUDA__ $(DEFINES) -use_fast_math -arch=$(ARCH) -Xcompiler "-O3,-fopenmp" $< -o $@
 
 Gridding-OpenCL.o:	Gridding.cc Common.h Defines.h
 		$(CXX) -c -D__OPENCL__ -I/usr/local/cuda/include -I/opt/AMDAPP/include $(DEFINES) $(CXXFLAGS) $< -o $@
