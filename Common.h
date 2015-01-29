@@ -164,6 +164,11 @@ inline double2 operator += (double2 &a, float2 b)
   return make_double2(a.x += b.x, a.y += b.y);
 }
 
+inline double2 operator += (double2 &a, double2 b)
+{
+  return make_double2(a.x += b.x, a.y += b.y);
+}
+
 
 inline std::ostream &operator << (std::ostream &str, float2 z)
 {
@@ -195,16 +200,16 @@ inline std::ostream &operator << (std::ostream &str, __m128 v)
 
 #if defined __CUDA__
 
-inline void checkCudaCallWithLineNumber(cudaError_t result, unsigned lineNumber)
+inline void checkCudaCallWithLineNumber(cudaError_t result, unsigned lineNumber, const char* fileName)
 {
   if (result != cudaSuccess) {
 #pragma omp critical (cout)
-    std::cerr << "cuda error (line #" << lineNumber << "): " << cudaGetErrorString(result) << std::endl;
+    std::cerr << "cuda error (line #" << lineNumber << " of " << fileName << "): " << cudaGetErrorString(result) << std::endl;
     exit(1);
   }
 }
 
-#define checkCudaCall(X) checkCudaCallWithLineNumber((X), __LINE__)
+#define checkCudaCall(X) checkCudaCallWithLineNumber((X), __LINE__,__FILE__)
 #endif
 
 

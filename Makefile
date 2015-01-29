@@ -1,7 +1,7 @@
 ifeq		($(shell hostname), gpu01)
 ARCH=		compute_30
 else
-ARCH=		compute_20
+ARCH=		compute_35
 endif
 
 PTXASFLAGS=	-Xptxas -v #,-dlcm=cg
@@ -17,6 +17,10 @@ else
 CXXFLAGS:=	$(CXXFLAGS) -msse3
 endif
 
+ifeq ($(DEBUG), 1)
+   CXXFLAGS += -g
+   CUFLAGS += -g -lineinfo
+endif
 
 DEFINES=	$(if ${MODE}, -DMODE=${MODE})\
 		$(if ${GRID_U}, -DGRID_U=${GRID_U})\
@@ -40,7 +44,7 @@ a.out-CPU:	Gridding-CPU.o UVW.o
 		$(CXX) $(DEFINES) $(CXXFLAGS) $^ -o $@
 
 a.out-Cuda:	Gridding-Cuda.o UVW.o
-		nvcc $(DEFINES) $(PTXASFLAGS) -ccbin=${CXX} -Xcompiler "$(CXXFLAGS)" $^ -o $@
+		nvcc $(DEFINES) $(PTXASFLAGS) $(CUFLAGS) -ccbin=${CXX} -Xcompiler "$(CXXFLAGS)" $^ -o $@
 
 a.out-OpenCL:	Gridding-OpenCL.o UVW.o
 		$(CXX) -g -L/opt/AMDAPP/lib/x86_64 $(DEFINES) $(CXXFLAGS) $^ -lOpenCL -o $@
@@ -50,11 +54,11 @@ Gridding-CPU.o:	Gridding.cc Common.h Defines.h
 		$(CXX) -c $(DEFINES) $(CXXFLAGS) $< -o $@
 
 Gridding-Cuda.ptx:Gridding.cc Common.h Defines.h
-		nvcc $(PTXASFLAGS) -x cu --ptx -ccbin=${CXX} -D__CUDA__ $(DEFINES) -use_fast_math -arch=$(ARCH) -code=$(ARCH) -Xcompiler "$(CXXFLAGS)" $< -o $@
+		nvcc $(PTXASFLAGS) $(CUFLAGS) -x cu --ptx -ccbin=${CXX} -D__CUDA__ $(DEFINES) -use_fast_math -arch=$(ARCH) -code=$(ARCH) -Xcompiler "$(CXXFLAGS)" $< -o $@
 
 Gridding-Cuda.o:Gridding.cc Common.h Defines.h
-		#nvcc $(PTXASFLAGS) -x cu --compile -ccbin=${CXX} -g -D__CUDA__ $(DEFINES) -use_fast_math -arch=$(ARCH) -code=$(ARCH) -Xcompiler "$(CXXFLAGS)" $< -o $@
-		nvcc $(PTXASFLAGS) -x cu --compile -ccbin=${CXX} -D__CUDA__ $(DEFINES) -use_fast_math -arch=$(ARCH) -Xcompiler "-O3,-fopenmp" $< -o $@
+		#nvcc $(PTXASFLAGS) $(CUFLAGS) -x cu --compile -ccbin=${CXX} -D__CUDA__ $(DEFINES) -use_fast_math -arch=$(ARCH) -code=$(ARCH) -Xcompiler "$(CXXFLAGS)" $< -o $@
+		nvcc $(PTXASFLAGS) $(CUFLAGS) -x cu --compile -ccbin=${CXX} -D__CUDA__ $(DEFINES) -use_fast_math -arch=$(ARCH) -Xcompiler "-O3,-fopenmp" $< -o $@
 
 Gridding-OpenCL.o:	Gridding.cc Common.h Defines.h
 		$(CXX) -c -D__OPENCL__ -I/usr/local/cuda/include -I/opt/AMDAPP/include $(DEFINES) $(CXXFLAGS) $< -o $@

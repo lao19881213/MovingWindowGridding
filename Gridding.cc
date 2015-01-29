@@ -47,6 +47,15 @@
 #include "UVW.cc"
 #endif
 
+#ifndef AccumType
+#define AccumType double2
+#endif
+//This is a lot of convoluted nonsense to create
+// make_double2 or make_float2 depending upon AccumType
+// instances of make(AccumType) will be expanded to make_double2, etc.
+#define PASTER(x,y) x ## _ ## y
+#define EVALUATOR(x,y)  PASTER(x,y)
+#define make(type) EVALUATOR(make, AccumType)
 
 #if defined __OPENCL__
 #if MODE != MODE_SIMPLE && MODE != MODE_OVERSAMPLE
@@ -71,7 +80,7 @@ typedef float2 SupportType[W_PLANES][SUPPORT_V][OVERSAMPLE_V][SUPPORT_U][OVERSAM
 typedef float2 SupportType[W_PLANES][SUPPORT_V + 2][SUPPORT_U + 2];
 #endif
 
-typedef float2 GridType[GRID_V][GRID_U][POLARIZATIONS];
+typedef AccumType GridType[GRID_V][GRID_U][POLARIZATIONS];
 typedef float3 UVWtype[BASELINES][TIMESTEPS][CHANNELS];
 typedef float2 VisibilitiesType[BASELINES][TIMESTEPS][CHANNELS][POLARIZATIONS];
 
@@ -106,7 +115,7 @@ void addGrids(GridType a, const GridType b[])
   for (int v = 0; v < GRID_V; v ++)
     for (unsigned u = 0; u < GRID_U; u ++)
       for (unsigned pol = 0; pol < POLARIZATIONS; pol ++) {
-	float2 sum = b[0][v][u][pol];
+	AccumType sum = b[0][v][u][pol];
 
 	for (unsigned g = 1; g < nrThreads; g ++)
 	  sum += b[g][v][u][pol];
@@ -254,10 +263,7 @@ __global__ void computeSupportFunction(SupportType support, float w, float2 cell
 }
 #endif
 
-
-
-#if 0
-__device__ void atomicAdd1(float *ptr, float sum)
+__device__ void atomicAddOne(float *ptr, float sum)
 {
   float old_v, new_v;
 
@@ -268,7 +274,7 @@ __device__ void atomicAdd1(float *ptr, float sum)
 }
 
 
-__device__ void atomicAdd(float2 *ptr, float2 sum)
+__device__ void atomicAddTwo(float2 *ptr, float2 sum)
 {
   union {
     float2 f2;
@@ -281,34 +287,31 @@ __device__ void atomicAdd(float2 *ptr, float2 sum)
     new_v.f2.y = old_v.f2.y + sum.y;
   } while (atomicCAS((unsigned long long *) ptr, old_v.ull, new_v.ull) != old_v.ull);
 }
+__device__ void atomicAddSwitch(float *ptr, float val) 
+{
+#if ATOMIC_TYPE == PLUS_EQ
+  *ptr += val;
+  //*ptr = val;
+  __prof_trigger(3);
+#elif ATOMIC_TYPE == CAS
+  atomicAddOne(ptr, val);
+  __prof_trigger(4);
+#else 
+  atomicAdd(ptr, val);
+  __prof_trigger(5);
 #endif
+}
 
 __device__ void atomicAdd(float2 *ptr, float2 sumXX, float2 sumXY, float2 sumYX, float2 sumYY)
 {
-#if 1
-  atomicAdd(&ptr[0].x, sumXX.x);
-  atomicAdd(&ptr[0].y, sumXX.y);
-  atomicAdd(&ptr[1].x, sumXY.x);
-  atomicAdd(&ptr[1].y, sumXY.y);
-  atomicAdd(&ptr[2].x, sumYX.x);
-  atomicAdd(&ptr[2].y, sumYX.y);
-  atomicAdd(&ptr[3].x, sumYY.x);
-  atomicAdd(&ptr[3].y, sumYY.y);
-#elif 1
-  ptr[0].x += sumXX.x;
-  ptr[0].y += sumXX.y;
-  ptr[1].x += sumXX.x;
-  ptr[1].y += sumXX.y;
-  ptr[2].x += sumXX.x;
-  ptr[2].y += sumXX.y;
-  ptr[3].x += sumXX.x;
-  ptr[3].y += sumXX.y;
-#else
-  atomicAdd(ptr + 0, sumXX);
-  atomicAdd(ptr + 1, sumXY);
-  atomicAdd(ptr + 2, sumYX);
-  atomicAdd(ptr + 3, sumYY);
-#endif
+  atomicAddSwitch(&ptr[0].x, sumXX.x);
+  atomicAddSwitch(&ptr[0].y, sumXX.y);
+  atomicAddSwitch(&ptr[1].x, sumXY.x);
+  atomicAddSwitch(&ptr[1].y, sumXY.y);
+  atomicAddSwitch(&ptr[2].x, sumYX.x);
+  atomicAddSwitch(&ptr[2].y, sumYX.y);
+  atomicAddSwitch(&ptr[3].x, sumYY.x);
+  atomicAddSwitch(&ptr[3].y, sumYY.y);
 }
 
 
@@ -319,7 +322,51 @@ __device__ void addSupportPixel(float2 &sum, float2 supportPixel, float2 vis)
   sum.x -= supportPixel.y * vis.y;
   sum.y += supportPixel.y * vis.x;
 }
+__device__ double atomicAdd(double* address, double val)
+{
+    unsigned long long int* address_as_ull =
+                             (unsigned long long int*)address;
+    unsigned long long int old = *address_as_ull, assumed;
+    do {
+        assumed = old;
+        old = atomicCAS(address_as_ull, assumed,
+                        __double_as_longlong(val +
+                                             __longlong_as_double(assumed)));
+    } while (assumed != old);
+    return __longlong_as_double(old);
+}
 
+__device__ void atomicAddSwitch(double *ptr, double val) {
+#if ATOMIC_TYPE==PLUS_EQ
+  *ptr += val;
+  __prof_trigger(6);
+#elif ATOMIC_TYPE==CAS
+  atomicAdd(ptr, val);
+  __prof_trigger(7);
+#else
+  atomicAdd(ptr, val);
+  __prof_trigger(8);
+#endif
+}
+__device__ void atomicAdd(double2 *ptr, double2 sumXX, double2 sumXY, double2 sumYX, double2 sumYY)
+{
+  atomicAddSwitch(&ptr[0].x, sumXX.x);
+  atomicAddSwitch(&ptr[0].y, sumXX.y);
+  atomicAddSwitch(&ptr[1].x, sumXY.x);
+  atomicAddSwitch(&ptr[1].y, sumXY.y);
+  atomicAddSwitch(&ptr[2].x, sumYX.x);
+  atomicAddSwitch(&ptr[2].y, sumYX.y);
+  atomicAddSwitch(&ptr[3].x, sumYY.x);
+  atomicAddSwitch(&ptr[3].y, sumYY.y);
+}
+
+__device__ void addSupportPixel(double2 &sum, float2 supportPixel, float2 vis)
+{
+  sum.x += supportPixel.x * vis.x;
+  sum.y += supportPixel.x * vis.y;
+  sum.x -= supportPixel.y * vis.y;
+  sum.y += supportPixel.y * vis.x;
+}
 
 #if 0
 __device__ void addSupportPixel(float2 &sumXX, float2 &sumXY, float2 &sumYX, float2 &sumYY, float2 supportPixel, float2 visXX, float2 visXY, float2 visYX, float2 visYY)
@@ -426,10 +473,10 @@ __device__ void convolve(GridType grid,
       int box_v = (i / supportSize.x + 2) % supportSize.y - supportSize.y;
 #endif
 
-      float2 sumXX = make_float2(0, 0);
-      float2 sumXY = make_float2(0, 0);
-      float2 sumYX = make_float2(0, 0);
-      float2 sumYY = make_float2(0, 0);
+      AccumType sumXX = make(AccumType)(0, 0);
+      AccumType sumXY = make(AccumType)(0, 0);
+      AccumType sumYX = make(AccumType)(0, 0);
+      AccumType sumYY = make(AccumType)(0, 0);
 
       unsigned grid_point = threadIdx.x;
 
@@ -496,10 +543,10 @@ __device__ void convolve(GridType grid,
 //__prof_trigger(4);
 	    atomicAdd(&grid[0][grid_point][0], sumXX, sumXY, sumYX, sumYY);
 
-	    sumXX = make_float2(0, 0);
-	    sumXY = make_float2(0, 0);
-	    sumYX = make_float2(0, 0);
-	    sumYY = make_float2(0, 0);
+	    sumXX = make(AccumType)(0, 0);
+	    sumXY = make(AccumType)(0, 0);
+	    sumYX = make(AccumType)(0, 0);
+	    sumYY = make(AccumType)(0, 0);
 
 	    grid_point = new_grid_point;
 	  }
@@ -941,7 +988,7 @@ void doCuda()
 #endif
 
 #pragma omp critical (cout)
-  std::cout << "device = " << device << std::endl;
+  std::cout << "device = " << device << std::endl; 
 
   checkCudaCall(cudaSetDevice(device));
   checkCudaCall(cudaSetDeviceFlags(cudaDeviceMapHost));
@@ -952,7 +999,6 @@ void doCuda()
 
   for (unsigned stream = 0; stream < STREAMS; stream ++)
     checkCudaCall(cudaMemset(grids[stream].devPtr, 0, sizeof(GridType)));
-
 #if MODE == MODE_SIMPLE || MODE == MODE_OVERSAMPLE
   SharedObject<SupportType> supports[STREAMS];
 
@@ -985,7 +1031,10 @@ void doCuda()
     nrThreads = atoi(getenv("NR_THREADS"));
 
   double start = getTime();
-  float  totalExecutionTime = 0;
+  float  totalExecutionTime = 0, total_kernel = 0;
+  cudaEvent_t custart, custop;
+  cudaEventCreate(&custart);
+  cudaEventCreate(&custop);
 
 //#pragma omp parallel num_threads(STREAMS)
   {
@@ -1021,10 +1070,12 @@ void doCuda()
 	//finishedCopy[stream].record(streams[stream]);
       }
 
+      cudaEventRecord(custart);
       for (unsigned stream = 0; stream < STREAMS; stream ++) {
 	printWorkLoad(*supportPixelsUsed[stream].hostPtr);
 
 	//startCompute[stream].record(streams[stream]);
+        std::cout << "addToGrid<<<" << BASELINES << ", " << nrThreads << ">>>" << std::endl;
 #if defined USE_TEXTURE
 	addToGrid<<<BASELINES, nrThreads, 0, streams[stream]>>>(*grids[stream].devPtr, *visibilities[stream].devPtr, *uvw[stream].devPtr, *supportPixelsUsed[stream].devPtr);
 #else
@@ -1033,6 +1084,11 @@ void doCuda()
 	checkCudaCall(cudaGetLastError());
 	//finishedCompute[stream].record(streams[stream]);
       }
+      cudaEventRecord(custop);
+      float kernel_time;
+      cudaEventSynchronize(custop);
+      cudaEventElapsedTime(&kernel_time, custart, custop);
+      total_kernel += kernel_time;
 
 #if 0
       for (unsigned stream = 0; stream < STREAMS; stream ++) {
@@ -1063,7 +1119,7 @@ void doCuda()
   double stop = getTime();
 
 #pragma omp critical (cout)
-  std::cout << "device " << device << ", dev->host copy = " << finishedCopy.elapsedTime(startCopy) << std::endl << "total exec time = " << (stop - start) << std::endl << "total kernel time = " << totalExecutionTime / 1000 << std::endl;
+  std::cout << "device " << device << ", dev->host copy = " << finishedCopy.elapsedTime(startCopy) << std::endl << "total exec time = " << (stop - start) << std::endl << "total kernel time = " << total_kernel / 1000 << std::endl << 8 * SUPPORT_U * SUPPORT_V * BLOCKS * BASELINES / (long)1000000.0 * TIMESTEPS * CHANNELS * POLARIZATIONS / total_kernel << " Gflops" <<std::endl;
 
   if (device == 0) {
 #if defined DEGRIDDING
@@ -1078,6 +1134,8 @@ void doCuda()
   cudaFreeArray(devSupport);
   cudaFreeHost(*hostSupport);
 #endif
+  cudaEventDestroy(custart);
+  cudaEventDestroy(custop);
 }
 
 #endif // defined __CUDA__
